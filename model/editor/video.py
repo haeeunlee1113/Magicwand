@@ -9,18 +9,20 @@ class Video:
         # initialization
         _, ext = video_path.split('.')
         if ext not in ['ogv', 'mp4', 'mpeg', 'avi', 'mov']:
-          raise Exception("Unsupported video format!")
+            raise Exception("Unsupported video format!")
         
         self._video_path = video_path
         self._video = mp.VideoFileClip(self._video_path, )
 
         # 1) get clipped video if start_time is given
         if start_time:
-          self._get_clip(start_time, end_time)
+            self._get_clip(start_time, end_time)
+            print(f'Video been successfully substituted with Clip!')
 
         # 2) extract the audio & remove silence if remove_silence is True
         if remove_silence:
-          self._remove_silence()
+            self._remove_silence()
+            print(f'Silence been successfully removed!')
 
     @property
     def video(self):
@@ -29,6 +31,10 @@ class Video:
     @property
     def video_path(self):
        return self._video_path
+
+    @property
+    def audio_path(self):
+        return self._audio_path
 
     @property
     def script(self,):
@@ -41,10 +47,10 @@ class Video:
     def _get_clip(self, start_time, end_time):
         self._video = self._video.subclip(start_time, end_time)
         self._video.write_videofile(self._video_path)
-      
+
     def _extract_audio(self):
-        self._video.audio.write_audiofile('raw_audio.mp3')
-        return AudioSegment.from_file('raw_audio.mp3')
+        self._video.audio.write_audiofile('/model/cache/raw_audio.mp3')
+        return AudioSegment.from_file('/model/cache/raw_audio.mp3')
     
     def _remove_silence(self, thres=-40, min_silence_len=200):
         # extract the audio_file from raw audio
@@ -54,9 +60,8 @@ class Video:
         audio = AudioSegment.empty()
         non_silence = detect_nonsilent(raw_audio, silence_thresh=thres, min_silence_len=min_silence_len)
         segments = split_on_silence(raw_audio, silence_thresh=thres, min_silence_len=min_silence_len, keep_silence=40)
-        for i, segment in enumerate(segments):
-            segment.write_audiofile(f'C:\Users\tasty\MagicWand\Magicwand\model\cache\audio_segment{i}')
-            audio += segment            
+        for segment in segments:
+            audio += segment
 
         # remove silence from video
         clips = []
@@ -65,9 +70,10 @@ class Video:
         clip = mp.concatenate_videoclips(clips, method='compose')
 
         # Export the final clip as a new MP4 file
-        clip.write_videofile("sample.mp4")
-        audio.export(self._audio_path, format='mp3')
-
+        clip.write_videofile("/model/cache/clip.mp4")
+        audio.export("/model/cache/audio.mp3", format='mp3')
+        self._audio_path = "/model/cache/audio.mp3"
+        
         # remove the original file
         os.remove(self._video_path)
-        self._video_path = "edited.mp4"
+        self._video_path = "/model/cache/clip.mp4"

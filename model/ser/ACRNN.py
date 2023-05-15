@@ -1,5 +1,5 @@
 import torch.nn as nn
-
+import torch.nn.functional as F
 
 class ACRNN(nn.Module):
     def __init__(self, num_classes = 4,):
@@ -51,7 +51,7 @@ class ACRNN(nn.Module):
         self.fc1 = nn.Linear(128, 64)
         self.fc2 = nn.Linear(64, num_classes)
 
-    def forward(self,x):
+    def forward(self, x):
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
