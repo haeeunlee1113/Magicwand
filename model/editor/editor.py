@@ -5,9 +5,11 @@ import moviepy.editor as mp
 import re
 from pydub import AudioSegment
 from pycaption import SRTReader
+import sys
+sys.path.append('/path/to/ffmpeg')
 
 import torch
-from stable_whisper import results_to_sentence_srt
+#from stable_whisper import results_to_sentence_srt
 from torch.utils.data import TensorDataset, DataLoader
 import stable_whisper
 
@@ -24,7 +26,7 @@ ssl._create_default_https_context = ssl._create_unverified_context
 class MagicWand:
     def __init__(self, ):
         # model_path
-        ser_path = '/Users/ihaeeun/Desktop/magicwand/model/model.pth'
+        ser_path = './model/model.pth'
         # self.cache_path = ''
 
         # cuda initialization
@@ -38,8 +40,8 @@ class MagicWand:
         print(f'MagicWand been initiated')
 
     def _extract_audio(self, video):
-        video.video.audio.write_audiofile('/Users/ihaeeun/Desktop/magicwand/videos/raw_audio.mp3')
-        audio = AudioSegment.from_mp3('/Users/ihaeeun/Desktop/magicwand/videos/raw_audio.mp3')
+        video.video.audio.write_audiofile('./videos/raw_audio.mp3')
+        audio = AudioSegment.from_mp3('./videos/raw_audio.mp3')
         return audio
 
     def _get_colors(self, max_color, min_color, pctg, thres):
@@ -63,7 +65,7 @@ class MagicWand:
         return mfcc
 
     def _extract_timestamps(self):
-        with open('/Users/ihaeeun/Desktop/magicwand/videos/subscript.srt', 'r', encoding='utf-8') as f:
+        with open('./videos/subscript.srt', 'r', encoding='utf-8') as f:
             lines = f.read().split('\n\n')
             sub_timestamps = []
             for line in lines:
@@ -95,11 +97,11 @@ class MagicWand:
         clip = mp.concatenate_videoclips(clips, method='compose')
 
         # Export the final clip as a new MP4 file
-        clip.write_videofile("/Users/ihaeeun/Desktop/magicwand/videos/clip.mp4")
-        audio.export("/Users/ihaeeun/Desktop/magicwand/videos/audio.mp3", format='mp3')
+        clip.write_videofile("./videos/clip.mp4")
+        audio.export("./videos/audio.mp3", format='mp3')
         video.video = clip
-        video.video_path = "/Users/ihaeeun/Desktop/magicwand/videos/clip.mp4"
-        video.audio_path = "/Users/ihaeeun/Desktop/magicwand/videos/audio.mp3"
+        video.video_path = "./videos/clip.mp4"
+        video.audio_path = "./videos/audio.mp3"
         return video
 
     def run_ser(self, video, thres=0.75):
@@ -111,6 +113,8 @@ class MagicWand:
             pred_prob, pred = torch.max(output.data, 1)
             emo_prob = {index: [pred[index].item(), pred_prob[index].item()]
             if pred_prob[index].item() >= thres else None for index in range(len(features))}
+        print(emo_prob)
+        print("end ser")
         return emo_prob
 
     # remove silence에서 audio 추출하는 부분 옮겨옴
@@ -120,35 +124,32 @@ class MagicWand:
     def run_stt(self, video):
         audio = self._extract_audio(video)
 
-        audio.export("/Users/ihaeeun/Desktop/magicwand/videos/audio.mp3", format='mp3')
-        video.audio_path = "/Users/ihaeeun/Desktop/magicwand/videos/audio.mp3"
+        audio.export("./videos/audio.mp3", format='mp3')
+        video.audio_path = "./videos/audio.mp3"
         video.script = self.stt_model.transcribe(video.audio_path, task='transcribe')
-        results_to_sentence_srt(video.script, 'videos/subscript.srt')
-        # result = stable_whisper.WhisperResult(video.script)
-
-        print(type(video.script))
-        '''video.script.save_as_json('audio.json')
-        result = stable_whisper.WhisperResult('audio.json')
-        result.to_srt_vtt('audio.srt')
-'''
-        # video.script.to_srt_vtt('videos/subscript.srt', segment_level=True, word_level=False)
+        video.script.to_srt_vtt('./videos/subscript.srt', segment_level=True, word_level=False)
         print(f'script been successfully converted to srt!')
         return video
 
     def encode_subtitle(self, video, emo_prob):
         # 0:ANGRY 1:HAPPY 2:NEUTRAL 3:SAD
+        print("start encoding")
         subtitles = []
         emo_color = {0: [(255, 0, 0), (255, 90, 90)], 1: [(255, 255, 0), (255, 220, 30)], 2: (255, 255, 255),
                      3: [(0, 84, 255), (72, 156, 255)]}
 
-        with open("/Users/ihaeeun/Desktop/magicwand/videossubscript.srt", 'r', encoding='utf-8') as f:
+        with open("./videos/subscript.srt", 'r', encoding='utf-8') as f:
             captions = SRTReader().read(f.read(), lang='ko')
+        print("open success")
 
         for idx, line in enumerate(captions.get_captions('ko')):
             if emo_prob[idx]:
                 if emo_prob[idx][0] == 2:
+                    print(emo_prob[idx][0])
                     txt = TextClip(line.get_text(), fontsize=16, font='Malgun-Gothic', color=f'rgba{emo_color[2]}')
                 else:
+                    print(emo_prob[idx][0])
+
                     txt = TextClip(line.get_text(), fontsize=16, font='Malgun-Gothic',
                                    color=f'rgba{self._get_colors(emo_color[emo_prob[idx][0]][0], emo_color[emo_prob[idx][0]][1], emo_prob[idx][1], thres=0.75)}')
             else:
@@ -157,7 +158,13 @@ class MagicWand:
             sub = txt.set_start(line.start / 1000.).set_duration((line.end - line.start) / 1000.)
             subtitles.append(sub)
 
+        print("encoding")
+
         final_video = CompositeVideoClip([video.video] + subtitles)
-        final_video.write_videofile('/Users/ihaeeun/Desktop/magicwand/videos/encoded_video.mp4', fps=24, threads=16,
+        final_video.write_videofile('./videos/encoded_video.mp4', fps=24, threads=16,
                                     logger=None,
                                     codec="mpeg4", preset="slow", ffmpeg_params=['-b:v', '10000k'])
+
+        print("end of encoding")
+
+

@@ -1,6 +1,8 @@
 from torch.utils.data import Dataset
 from sklearn.preprocessing import StandardScaler
 from pydub import AudioSegment
+import sys
+sys.path.append('/path/to/ffmpeg')
 
 import numpy as np
 import cv2
@@ -17,13 +19,14 @@ class speech_dataset(Dataset):
         raw_audio = AudioSegment.from_mp3(video.audio_path)
         self.cache_path = video.audio_path.rsplit('\\', 1)[0]
         for i, start_ms, end_ms in sub_timestamps:
-            raw_audio[start_ms:end_ms].export('/Users/ihaeeun/Desktop/magicwand/videos/raw_audiosegment_{i+1}.mp3',
+            numbering = str(i+1)
+            raw_audio[start_ms:end_ms].export('./videos/segment_'+numbering+'.mp3',
                                               format="mp3")
 
     def _load_and_process_audio(self, sub_timestamps):
         scaler = StandardScaler()
         for i in range(1, 1 + len(sub_timestamps)):
-            wav, sr = librosa.load(f'{self.cache_path}\\segment_{i}.mp3', sr=48000)
+            wav, sr = librosa.load('./videos/segment_'+str(i)+'.mp3', sr=48000)
             mfcc = librosa.feature.mfcc(y=wav, sr=sr, n_fft=1024, hop_length=512, n_mfcc=64)
             mfcc = cv2.resize(mfcc, dsize=(512, 64), interpolation=cv2.INTER_AREA)
             mfcc = np.expand_dims(scaler.fit_transform(mfcc), axis=0)
