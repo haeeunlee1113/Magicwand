@@ -10,6 +10,7 @@ class Video:
         
         self._video_path = video_path
         self._video = mp.VideoFileClip(self._video_path)
+        self._audio_path = None
         
     @property
     def video(self):

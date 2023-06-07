@@ -4,21 +4,18 @@ from pydub.silence import split_on_silence, detect_nonsilent
 import moviepy.editor as mp
 import re
 from pydub import AudioSegment
-from pycaption import SRTReader
+import pysubs2
 
 import torch
 from torch.utils.data import TensorDataset, DataLoader
-import stable_whisper
+import stable_whisper 
 from ser.data import speech_dataset
 from ser.ACRNN import ACRNN
-
-from moviepy.video.tools.subtitles import TextClip
-from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
-
+import subprocess
 
 
 class MagicWand:
-    def __init__(self,):
+    def __init__(self):
         # model_path
         ser_path = 'C:/Users/tasty/model.pth'
         self.cache_path = 'C:\\Users\\tasty\\MagicWand\\Magicwand\\model\\cache'
@@ -30,7 +27,7 @@ class MagicWand:
         self.ser_model = ACRNN().to(self.device)
         self.ser_model.load_state_dict(torch.load(ser_path, map_location=self.device))
         self.ser_model.eval()
-        self.stt_model = stable_whisper.load_model(name='small')
+        self.stt_model = stable_whisper.load_model('medium')
         self._empty_cache()
         print(f'MagicWand been initiated')
 
@@ -39,10 +36,12 @@ class MagicWand:
             os.remove(f'{self.cache_path}\\{file}')
         print(f'every file in cache been removed!')
     
-    def _extract_audio(self, video):
-        video.video.audio.write_audiofile(f'{self.cache_path}\\raw_audio.mp3')
-        audio = AudioSegment.from_mp3(f'{self.cache_path}\\raw_audio.mp3')
-        return audio
+    def _extract_audio(self, video, flag=False):
+        video.video.audio.write_audiofile(f'{self.cache_path}\\audio.mp3')
+        if flag:
+            video.audio_path = f'{self.cache_path}\\audio.mp3'
+            return video
+        return AudioSegment.from_mp3(f'{self.cache_path}\\audio.mp3')
     
     def _get_colors(self, max_color, min_color, pctg, thres):
         r1, g1, b1 = min_color
@@ -51,7 +50,7 @@ class MagicWand:
         r = int(r1 + (r2-r1) * pctg)
         g = int(g1 + (g2-g1) * pctg)
         b = int(b1 + (b2-b1) * pctg)
-        return (r,g,b)
+        return pysubs2.Color(r,g,b)
 
     def _write_srt(self, video):
         video.script.to_srt_vtt(f'{self.cache_path}\\subscript.srt', segment_level = True, word_level = False) 
@@ -74,18 +73,18 @@ class MagicWand:
                     start_time, end_time = re.findall(r'\d{2}:\d{2}:\d{2},\d{3}', parts[1])
                     ssec, sms = map(int, start_time[3:].rsplit(':',1)[1].split(','))
                     esec, ems = map(int, end_time[3:].rsplit(':',1)[1].split(','))
-                    smin, emin = map(int, [start_time[3:].rsplit(':',1)[0], end_time[3:].rsplit(':',1)[0]])
+                    smin, emin = map(int, [start_time[3:].split(':',1)[0], end_time[3:].split(':',1)[0]])
                     sub_timestamps.append((index, 60000*smin+1000*ssec+sms, 60000*emin+1000*esec+ems))
         return sub_timestamps
 
-    def remove_silence(self, video, thres=-35, min_silence_len=250):
+    def remove_silence(self, video, thres=-40, min_silence_len=500):
         # extract the audio_file from raw audio
         raw_audio = self._extract_audio(video)
                 
         # remove silence from audio
         audio = AudioSegment.empty()
         non_silence = detect_nonsilent(raw_audio, silence_thresh=thres, min_silence_len=min_silence_len)
-        segments = split_on_silence(raw_audio, silence_thresh=thres, min_silence_len=min_silence_len, keep_silence=40)
+        segments = split_on_silence(raw_audio, silence_thresh=thres, min_silence_len=min_silence_len, keep_silence=0)
         for segment in segments:
             audio += segment
 
@@ -103,7 +102,7 @@ class MagicWand:
         video.audio_path = f'{self.cache_path}\\audio.mp3'
         return video
 
-    def run_ser(self, video, thres=0.75):
+    def run_ser(self, video, thres=0.7):
         sub_timestamps = self._extract_timestamps()
         features = self._extract_mfcc(video, sub_timestamps)
         
@@ -115,30 +114,51 @@ class MagicWand:
         return emo_prob
 
     def run_stt(self, video):
-        video.script = self.stt_model.transcribe(video.audio_path, task='transcribe')
+        if video.audio_path == None:
+            video = self._extract_audio(video, flag=True)
+
+        video.script = self.stt_model.transcribe(video.audio_path, word_timestamps=True)
         self._write_srt(video)
         return video
 
+
     def encode_subtitle(self, video, emo_prob):
         # 0:ANGRY 1:HAPPY 2:NEUTRAL 3:SAD
-        subtitles = []
         emo_color = {0:[(255,0,0),(255,90,90)], 1:[(255,255,0), (255,220,30)], 2:(255,255,255), 3:[(0,84,255), (72,156,255)]}
 
-        with open(f"{self.cache_path}\\subscript.srt", 'r', encoding='utf-8') as f:
-            captions = SRTReader().read(f.read(), lang='ko')
-                
-        for idx, line in enumerate(captions.get_captions('ko')):
-            if emo_prob[idx]:
-                if emo_prob[idx][0] == 2:
-                    txt = TextClip(line.get_text(), fontsize=16, font='Malgun-Gothic', color=f'rgba{emo_color[2]}')
-                else:
-                    txt = TextClip(line.get_text(), fontsize=16, font='Malgun-Gothic', 
-                                   color=f'rgba{self._get_colors(emo_color[emo_prob[idx][0]][0], emo_color[emo_prob[idx][0]][1], emo_prob[idx][1], thres=0.75)}')
-            else:
-                txt = TextClip(line.get_text(), fontsize=16, font='Malgun-Gothic', color=f'rgba{(255, 255, 255)}')
-            txt = txt.set_position(('center', 'bottom'))
-            sub = txt.set_start(line.start/1000.).set_duration((line.end - line.start)/1000.)
-            subtitles.append(sub)
+        subs = pysubs2.load(f"{self.cache_path}\\subscript.srt")
+        
+        captions = pysubs2.SSAFile()
+        captions.info['ScaledBorderAndShadow'] = 'no'
+        captions.info['YCbCr Matrix'] = 'TV.601'
+        captions.styles = dict()
 
-        final_video = CompositeVideoClip([video.video] + subtitles)
-        final_video.write_videofile(f'{self.cache_path}\\encoded_video.mp4', fps=24, threads=16, logger=None, codec="mpeg4", preset="slow", ffmpeg_params=['-b:v','10000k'])
+        def _get_style(emo):
+            if emo[0] == 0:
+                return pysubs2.SSAStyle(fontname='Mapo홍대프리덤', fontsize=40, shadow=0, outline=0, 
+                                        alignment=pysubs2.Alignment.MIDDLE_CENTER, primarycolor=self._get_colors(emo_color[0][0], emo_color[0][1], emo[1], 0.7))
+            elif emo[0] == 1:
+                return pysubs2.SSAStyle(fontname='스스로넷 칠백삼', fontsize=40, shadow=0, outline=0, 
+                                        alignment=pysubs2.Alignment.MIDDLE_CENTER, primarycolor=self._get_colors(emo_color[1][0], emo_color[1][1], emo[1], 0.7))
+            elif emo[0] == 2:
+                return pysubs2.SSAStyle(fontname='Pretendard', fontsize=40, shadow=0, outline=0, 
+                                        alignment=pysubs2.Alignment.MIDDLE_CENTER, primarycolor=pysubs2.Color(255,255,255))
+            else:
+                return pysubs2.SSAStyle(fontname='완도희망체', fontsize=40, shadow=0, outline=0, 
+                                        alignment=pysubs2.Alignment.MIDDLE_CENTER, primarycolor=self._get_colors(emo_color[3][0], emo_color[3][1], emo[1], 0.7))
+
+        for idx, line in enumerate(subs):
+            if emo_prob[idx]:
+                captions.styles[f'style_{idx}'] = _get_style(emo_prob[idx])
+                line.style = f'style_{idx}'
+                captions.append(line)
+            else:
+                captions.styles[f'style_{idx}'] = pysubs2.SSAStyle(fontname='Pretendard', fontsize=80, shadow=0, outline=0, 
+                                                                   alignment=pysubs2.Alignment.MIDDLE_CENTER, primarycolor=pysubs2.Color(255,255,255))
+                line.style = f'style_{idx}'
+                captions.append(line)
+
+        captions.save(f'{self.cache_path}\\subscript.ass', format='ass')
+        
+        ffmpeg_cmd = f'ffmpeg -i {video.video_path} -vf "subtitles=model/cache/subscript.ass" -c:a copy {self.cache_path}\\encoded_video.mp4'
+        subprocess.call(ffmpeg_cmd, shell=True)

@@ -12,7 +12,7 @@ magicwand = MagicWand()
 video = Video(raw_path)
 
 # 4) extract text from segmented speech
-video = magicwand.remove_silence(video)
+#video = magicwand.remove_silence(video)
 
 # 4) extract text from segmented speech
 video = magicwand.run_stt(video)
